@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/rhombus-tech/timeserver-core/core/types"
 )
 
 // ValidatorElection manages validator election
@@ -42,7 +44,7 @@ func (ve *ValidatorElection) StartViewChange(ctx context.Context) error {
 	defer ve.state.mu.Unlock()
 
 	// Increment view number
-	newView := ve.state.View + 1
+	newView := ve.state.GetView() + 1
 
 	// Calculate new leader
 	validators := ve.state.GetValidators()
@@ -58,18 +60,18 @@ func (ve *ValidatorElection) StartViewChange(ctx context.Context) error {
 	newLeader := validatorIDs[newView%uint64(len(validatorIDs))]
 
 	// Update state
-	ve.state.View = newView
-	ve.state.Leader = newLeader
+	ve.state.SetView(newView)
+	ve.state.SetLeader(newLeader)
 
 	// Create view change message
 	msg := &ConsensusMessage{
 		Type: "view_change",
 		View: newView,
-		From: ve.state.NodeID,
+		From: ve.state.GetNodeID(),
 		To:   newLeader,
-		Timestamp: &SignedTimestamp{
+		Timestamp: &types.SignedTimestamp{
 			Time:     time.Now(),
-			ServerID: ve.state.NodeID,
+			ServerID: ve.state.GetNodeID(),
 		},
 	}
 

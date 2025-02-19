@@ -5,8 +5,8 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
-// Protocol ID for consensus messages
-var ConsensusProtocolID = protocol.ID("/timeserver/consensus/1.0.0")
+// ConsensusProtocolID is the protocol ID for consensus messages
+const ConsensusProtocolID = protocol.ID("/timeserver/consensus/1.0.0")
 
 // Protocol constants
 const (

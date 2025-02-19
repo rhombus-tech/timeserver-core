@@ -7,20 +7,11 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
-// Network defines the network interface required by consensus
+// Network defines the interface for network operations
 type Network interface {
-	// RegisterProtocol registers a protocol handler
-	RegisterProtocol(protocol.ID, func(context.Context, peer.ID, []byte) error)
-
-	// Broadcast sends a message to all peers
-	Broadcast(context.Context, protocol.ID, []byte) error
-
-	// Send sends a message to a specific peer
-	Send(context.Context, peer.ID, protocol.ID, []byte) error
-
-	// Start starts the network
-	Start(context.Context) error
-
-	// Stop stops the network
+	Broadcast(ctx context.Context, proto protocol.ID, data []byte) error
+	Send(ctx context.Context, p peer.ID, proto protocol.ID, data []byte) error
+	RegisterProtocol(id protocol.ID, handler func(context.Context, peer.ID, []byte) error)
+	Start(ctx context.Context) error
 	Stop() error
 }

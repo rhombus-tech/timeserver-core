@@ -6,19 +6,21 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/rhombus-tech/timeserver-core/core/types"
 )
 
 // ViewChange manages the view change process
 type ViewChange struct {
 	mu       sync.RWMutex
-	state    *State
-	network  NetworkInterface
+	state    *ConsensusState
+	network  Network
 	viewID   uint64
 	messages map[uint64][]*ConsensusMessage
 }
 
 // NewViewChange creates a new view change instance
-func NewViewChange(state *State, network NetworkInterface) *ViewChange {
+func NewViewChange(state *ConsensusState, network Network) *ViewChange {
 	return &ViewChange{
 		state:    state,
 		network:  network,
@@ -36,12 +38,12 @@ func (vc *ViewChange) StartViewChange(ctx context.Context) error {
 
 	// Create view change message
 	msg := &ConsensusMessage{
-		Type:      "viewchange",
-		View:      vc.viewID,
-		From:      vc.state.GetNodeID(),
-		Timestamp: &SignedTimestamp{
+		Type: "viewchange",
+		View: vc.viewID,
+		From: vc.state.NodeID,
+		Timestamp: &types.SignedTimestamp{
 			Time:     time.Now(),
-			ServerID: vc.state.GetNodeID(),
+			ServerID: vc.state.NodeID,
 		},
 	}
 
@@ -75,7 +77,7 @@ func (vc *ViewChange) ProcessViewChangeMessage(ctx context.Context, data []byte)
 	vc.messages[msg.View] = append(vc.messages[msg.View], &msg)
 
 	// Check if we have enough messages for this view
-	if len(vc.messages[msg.View]) >= (len(vc.state.GetValidators())/2 + 1) {
+	if len(vc.messages[msg.View]) >= (len(vc.state.Validators)/2 + 1) {
 		// We have a quorum, update the view
 		vc.viewID = msg.View
 		return nil
