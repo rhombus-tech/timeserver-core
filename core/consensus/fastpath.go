@@ -3,6 +3,7 @@ package consensus
 import (
     "context"
     "fmt"
+    "sort"
     "sync"
     "time"
     "github.com/rhombus-tech/timeserver-core/core/types"
@@ -43,13 +44,19 @@ func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestam
     fp.mu.Lock()
     defer fp.mu.Unlock()
 
+    now := time.Now()
+    
     // Create timestamp
     ts := &types.SignedTimestamp{
-        Time: time.Now(),
+        Time: now,
     }
     
-    // Create channels for collecting signatures
-    sigChan := make(chan map[string][]byte, fp.config.MinSignatures)
+    // Create channels for collecting signatures and timestamps
+    sigChan := make(chan struct{
+        serverID string
+        sig []byte
+        ts time.Time
+    }, fp.config.MinSignatures)
     errChan := make(chan error, len(fp.nearestServers))
     
     // Set timeout for fast path
@@ -58,8 +65,8 @@ func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestam
     
     // Request signatures in parallel from nearest servers
     validSignatures := 0
-    failedServers := 0
     
+    // Start all requests first
     for _, serverID := range fp.nearestServers {
         go func(id string) {
             sig, err := fp.requestSignature(ctx, id, ts)
@@ -67,21 +74,52 @@ func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestam
                 errChan <- fmt.Errorf("server %s failed: %v", id, err)
                 return
             }
-            sigChan <- map[string][]byte{id: sig}
+            sigChan <- struct{
+                serverID string
+                sig []byte
+                ts time.Time
+            }{id, sig, time.Now()}
         }(serverID)
     }
     
     // Collect signatures
     signatures := make(map[string][]byte)
+    timestamps := make(map[string]time.Time)
+    remainingServers := len(fp.nearestServers)
     
     for {
         select {
-        case sig := <-sigChan:
-            for id, s := range sig {
-                signatures[id] = s
-                validSignatures++
+        case resp := <-sigChan:
+            // Validate timestamp is not from future
+            if resp.ts.After(now.Add(fp.config.MaxDrift)) {
+                errChan <- fmt.Errorf("server %s timestamp is in the future: %v", resp.serverID, resp.ts)
+                continue
             }
+            
+            // Check drift against other timestamps
+            for sid, t := range timestamps {
+                if drift := resp.ts.Sub(t); drift > fp.config.MaxDrift || drift < -fp.config.MaxDrift {
+                    errChan <- fmt.Errorf("timestamp drift between %s and %s exceeds MaxDrift: %v", resp.serverID, sid, drift)
+                    continue
+                }
+            }
+            
+            signatures[resp.serverID] = resp.sig
+            timestamps[resp.serverID] = resp.ts
+            validSignatures++
+            remainingServers--
+            
             if validSignatures >= fp.config.MinSignatures {
+                // Use median timestamp
+                var allTimestamps []time.Time
+                for _, t := range timestamps {
+                    allTimestamps = append(allTimestamps, t)
+                }
+                sort.Slice(allTimestamps, func(i, j int) bool {
+                    return allTimestamps[i].Before(allTimestamps[j])
+                })
+                ts.Time = allTimestamps[len(allTimestamps)/2]
+                
                 // Aggregate signatures
                 aggregatedSig, err := fp.thresholdSigs.Aggregate(signatures)
                 if err != nil {
@@ -91,10 +129,14 @@ func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestam
                 return ts, nil
             }
             
-        case <-errChan:
-            failedServers++
             // Check if we can still get enough signatures
-            remainingServers := len(fp.nearestServers) - failedServers
+            if validSignatures + remainingServers < fp.config.MinSignatures {
+                return nil, fmt.Errorf("fast path: not enough valid signatures available")
+            }
+            
+        case <-errChan:
+            remainingServers--
+            // Check if we can still get enough signatures
             if validSignatures + remainingServers < fp.config.MinSignatures {
                 return nil, fmt.Errorf("fast path: not enough valid signatures available")
             }

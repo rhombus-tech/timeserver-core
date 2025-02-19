@@ -88,7 +88,7 @@ func TestFastPath(t *testing.T) {
         network := NewMockNetwork()
         // Mix of delays and failures
         network.SetFailure("server1", true)
-        network.SetDelay("server2", 40*time.Millisecond) // Within timeout
+        network.SetDelay("server2", 40*time.Millisecond)
         network.SetDelay("server3", 10*time.Millisecond)
         network.SetFailure("server4", true)
         network.SetDelay("server5", 20*time.Millisecond)
@@ -103,6 +103,63 @@ func TestFastPath(t *testing.T) {
         assert.NoError(t, err)
         assert.NotNil(t, ts)
         assert.NotNil(t, ts.Signature)
+    })
+
+    t.Run("Future Timestamp Rejection", func(t *testing.T) {
+        network := NewMockNetwork()
+        // Set one server to return future timestamp
+        network.SetTimestampOffset("server1", 20*time.Millisecond) // Beyond MaxDrift
+        network.SetDelay("server2", 5*time.Millisecond)
+        network.SetDelay("server3", 10*time.Millisecond)
+        network.SetDelay("server4", 15*time.Millisecond)
+        network.SetDelay("server5", 20*time.Millisecond)
+
+        fp := NewMockFastPath(config, mockThreshold, testServers, network)
+        
+        ctx := context.Background()
+        _, err := fp.GetTimestamp(ctx)
+        
+        assert.Error(t, err)
+        assert.Contains(t, err.Error(), "timestamp is in the future")
+    })
+
+    t.Run("Timestamp Drift Check", func(t *testing.T) {
+        network := NewMockNetwork()
+        // Set timestamps with too much drift
+        network.SetTimestampOffset("server1", -15*time.Millisecond) // Beyond MaxDrift
+        network.SetTimestampOffset("server2", 15*time.Millisecond)  // Beyond MaxDrift
+        network.SetDelay("server3", 5*time.Millisecond)
+        network.SetDelay("server4", 10*time.Millisecond)
+        network.SetDelay("server5", 15*time.Millisecond)
+
+        fp := NewMockFastPath(config, mockThreshold, testServers, network)
+        
+        ctx := context.Background()
+        _, err := fp.GetTimestamp(ctx)
+        
+        assert.Error(t, err)
+        assert.Contains(t, err.Error(), "exceeds MaxDrift")
+    })
+
+    t.Run("Median Timestamp Selection", func(t *testing.T) {
+        network := NewMockNetwork()
+        now := time.Now()
+        
+        // Set timestamps in a specific order to test median selection
+        network.SetTimestamp("server1", now.Add(-5*time.Millisecond))
+        network.SetTimestamp("server2", now.Add(5*time.Millisecond))
+        network.SetTimestamp("server3", now) // This should be selected as median
+        network.SetTimestamp("server4", now.Add(-3*time.Millisecond))
+        network.SetTimestamp("server5", now.Add(3*time.Millisecond))
+
+        fp := NewMockFastPath(config, mockThreshold, testServers, network)
+        
+        ctx := context.Background()
+        ts, err := fp.GetTimestamp(ctx)
+        
+        assert.NoError(t, err)
+        assert.NotNil(t, ts)
+        assert.Equal(t, now.UnixNano(), ts.Time.UnixNano(), "Should select median timestamp")
     })
 
     t.Run("GetTimestamp Success", func(t *testing.T) {
