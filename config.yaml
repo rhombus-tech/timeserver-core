@@ -1,0 +1,25 @@
+server:
+  listen_addr: "/ip4/0.0.0.0/tcp/9000"
+  validator_count: 4
+
+network:
+  bootstrap_peers:
+    - "/ip4/1.2.3.4/tcp/9000/p2p/QmBootstrapPeer1"
+    - "/ip4/5.6.7.8/tcp/9000/p2p/QmBootstrapPeer2"
+  max_peers: 50
+  dial_timeout: 30
+
+region:
+  id: "us-east"
+  name: "US East"
+  description: "East Coast Region"
+  peers:
+    - "/ip4/10.0.0.1/tcp/9000/p2p/QmPeer1"
+    - "/ip4/10.0.0.2/tcp/9000/p2p/QmPeer2"
+
+security:
+  key_file: "server.key"
+  key_type: "ed25519"
+  tls_enabled: false
+  tls_cert_file: ""
+  tls_key_file: ""
