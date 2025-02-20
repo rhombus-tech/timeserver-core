@@ -99,8 +99,8 @@ func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestam
             // Check drift against other timestamps
             for sid, t := range timestamps {
                 if drift := resp.ts.Sub(t); drift > fp.config.MaxDrift || drift < -fp.config.MaxDrift {
-                    errChan <- fmt.Errorf("timestamp drift between %s and %s exceeds MaxDrift: %v", resp.serverID, sid, drift)
-                    continue
+                    remainingServers--
+                    return nil, fmt.Errorf("timestamp drift between %s and %s exceeds MaxDrift: %v", resp.serverID, sid, drift)
                 }
             }
             

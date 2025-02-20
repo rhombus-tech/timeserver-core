@@ -71,10 +71,63 @@ consensus:
 
 ## Getting Started
 
-1. Configure validators and regions
-2. Start timeserver network
-3. Integrate with blockchain
-4. Enforce timestamp ordering
+### Prerequisites
+
+1. Go 1.21 or later
+2. Protocol Buffers compiler (`protoc`)
+   - Mac: `brew install protobuf`
+   - Linux: `apt-get install protobuf-compiler`
+   - Or download from [protobuf releases](https://github.com/protocolbuffers/protobuf/releases)
+3. Go plugins for protocol buffers:
+   ```bash
+   go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+   go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+   ```
+
+### Building
+
+1. Generate gRPC code:
+   ```bash
+   make proto
+   ```
+
+2. Build the timeserver:
+   ```bash
+   make build
+   ```
+
+3. Run tests:
+   ```bash
+   make test
+   ```
+
+### Running
+
+1. Configure validators and regions in `config.yaml`
+2. Start timeserver network:
+   ```bash
+   ./bin/timeserver -config config.yaml
+   ```
+
+### Integration
+
+The timeserver provides both gRPC and REST APIs:
+
+#### gRPC API
+```protobuf
+service TimestampService {
+  rpc GetTimestamp(GetTimestampRequest) returns (GetTimestampResponse)
+  rpc VerifyTimestamp(VerifyTimestampRequest) returns (VerifyTimestampResponse)
+  rpc GetValidators(GetValidatorsRequest) returns (GetValidatorsResponse)
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse)
+}
+```
+
+#### REST API
+- `POST /v1/timestamp`: Get new timestamp
+- `POST /v1/timestamp/verify`: Verify timestamp
+- `GET /v1/validators`: List validators
+- `GET /v1/status`: Get status
 
 ## Contributing
 

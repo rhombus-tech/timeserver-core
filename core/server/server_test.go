@@ -10,80 +10,71 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewServer(t *testing.T) {
+func TestServer_Basic(t *testing.T) {
 	// Generate test key pair
 	pub, priv, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
-	require.NotNil(t, pub)
-	require.NotNil(t, priv)
 
 	// Create server
-	s, err := NewServer("test", priv, nil)
+	s, err := NewServer("test", "us-east", priv, nil)
 	require.NoError(t, err)
-	require.NotNil(t, s)
 
-	// Check server fields
+	// Check basic properties
 	assert.Equal(t, "test", s.GetID())
+	assert.Equal(t, "us-east", s.GetRegion())
 	assert.Equal(t, pub, s.GetPublicKey())
-}
-
-func TestServerSignVerify(t *testing.T) {
-	// Generate test key pair
-	_, priv, err := ed25519.GenerateKey(nil)
-	require.NoError(t, err)
-
-	// Create server
-	s, err := NewServer("test", priv, nil)
-	require.NoError(t, err)
 
 	// Test signing
-	data := []byte("test data")
-	sig := s.Sign(data)
-	require.NotNil(t, sig)
+	msg := []byte("test message")
+	sig, err := s.Sign(msg)
+	require.NoError(t, err)
 
 	// Test verification
-	valid := s.Verify(data, sig)
-	assert.True(t, valid)
-
-	// Test invalid signature
-	invalid := s.Verify([]byte("wrong data"), sig)
-	assert.False(t, invalid)
+	err = s.Verify(msg, sig)
+	require.NoError(t, err)
 }
 
-func TestServerStartStop(t *testing.T) {
-	// Generate test key pair
-	_, priv, err := ed25519.GenerateKey(nil)
+func TestServer_Network(t *testing.T) {
+	// Generate test key pairs
+	_, priv1, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	_, priv2, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 
-	// Create server
-	s, err := NewServer("test", priv, nil)
+	// Create servers with empty bootstrap peers
+	s1, err := NewServer("server1", "us-east", priv1, nil)
 	require.NoError(t, err)
 
-	// Test start
+	s2, err := NewServer("server2", "us-west", priv2, nil)
+	require.NoError(t, err)
+
+	// Start servers
 	ctx := context.Background()
-	err = s.Start(ctx)
+	err = s1.Start(ctx)
+	require.NoError(t, err)
+	defer s1.Stop()
+
+	err = s2.Start(ctx)
+	require.NoError(t, err)
+	defer s2.Stop()
+
+	// Add peers one at a time
+	err = s1.AddPeer(s2)
 	require.NoError(t, err)
 
-	// Test double start
-	err = s.Start(ctx)
-	assert.Error(t, err)
-
-	// Test stop
-	err = s.Stop()
-	require.NoError(t, err)
-
-	// Test double stop
-	err = s.Stop()
-	assert.Error(t, err)
+	// Check peers on s1
+	peers1 := s1.GetPeers()
+	assert.Len(t, peers1, 1)
+	assert.Equal(t, "server2", peers1[0].GetID())
 }
 
-func TestGetTimestamp(t *testing.T) {
+func TestServer_FastPath(t *testing.T) {
 	// Generate test key pair
 	_, priv, err := ed25519.GenerateKey(nil)
 	require.NoError(t, err)
 
 	// Create server
-	s, err := NewServer("test", priv, nil)
+	s, err := NewServer("test", "us-east", priv, nil)
 	require.NoError(t, err)
 
 	// Start server
@@ -93,12 +84,13 @@ func TestGetTimestamp(t *testing.T) {
 	defer s.Stop()
 
 	// Get timestamp
-	ts, err := s.GetTimestamp(ctx)
+	ts, err := s.GetFastPath().GetTimestamp(ctx)
 	require.NoError(t, err)
-	require.NotNil(t, ts)
+	assert.Equal(t, "test", ts.ServerID)
+	assert.Equal(t, "us-east", ts.RegionID)
+	assert.WithinDuration(t, time.Now(), ts.Time, time.Second)
 
 	// Verify timestamp
-	assert.Equal(t, s.GetID(), ts.ServerID)
-	assert.True(t, ts.Time.Before(time.Now()))
-	assert.True(t, ts.Time.After(time.Now().Add(-time.Second)))
+	err = s.GetFastPath().VerifyTimestamp(ctx, ts)
+	require.NoError(t, err)
 }

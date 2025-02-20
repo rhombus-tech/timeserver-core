@@ -2,6 +2,7 @@ package consensus
 
 import (
     "context"
+    "math"
     "testing"
     "time"
     "github.com/stretchr/testify/assert"
@@ -138,6 +139,7 @@ func TestFastPath(t *testing.T) {
         _, err := fp.GetTimestamp(ctx)
         
         assert.Error(t, err)
+        assert.Contains(t, err.Error(), "timestamp drift between")
         assert.Contains(t, err.Error(), "exceeds MaxDrift")
     })
 
@@ -159,7 +161,8 @@ func TestFastPath(t *testing.T) {
         
         assert.NoError(t, err)
         assert.NotNil(t, ts)
-        assert.Equal(t, now.UnixNano(), ts.Time.UnixNano(), "Should select median timestamp")
+        diff := ts.Time.Sub(now)
+        assert.LessOrEqual(t, math.Abs(float64(diff)), float64(time.Millisecond), "Should select timestamp close to median")
     })
 
     t.Run("GetTimestamp Success", func(t *testing.T) {

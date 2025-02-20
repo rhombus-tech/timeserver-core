@@ -12,14 +12,38 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/rhombus-tech/timeserver-core/core/types"
 )
+
+// Network represents a P2P network
+type Network interface {
+	// Start starts the network
+	Start(ctx context.Context) error
+
+	// Stop stops the network
+	Stop() error
+
+	// GetPeer gets a peer by ID
+	GetPeer(id string) (types.TimeServer, error)
+
+	// GetPeersInRegion gets all peers in a region
+	GetPeersInRegion(region string) ([]types.TimeServer, error)
+
+	// Broadcast broadcasts a message to all peers
+	Broadcast(ctx context.Context, proto protocol.ID, data []byte) error
+
+	// Send sends a message to a specific peer
+	Send(ctx context.Context, p peer.ID, proto protocol.ID, data []byte) error
+
+	// RegisterProtocol registers a protocol handler
+	RegisterProtocol(proto protocol.ID, handler func(context.Context, peer.ID, []byte) error)
+}
 
 // P2PNetwork represents a P2P network node
 type P2PNetwork struct {
 	host         host.Host
 	id           string
-	handlers     map[protocol.ID]MessageHandler
-	fullHandlers map[protocol.ID]FullMessageHandler
+	handlers     map[protocol.ID]func(context.Context, peer.ID, []byte) error
 	mu           sync.RWMutex
 }
 
@@ -32,10 +56,9 @@ func NewP2PNetwork(id string, privKey crypto.PrivKey, bootstrapPeers []string) (
 	}
 
 	return &P2PNetwork{
-		host:         h,
-		id:           id,
-		handlers:     make(map[protocol.ID]MessageHandler),
-		fullHandlers: make(map[protocol.ID]FullMessageHandler),
+		host:     h,
+		id:       id,
+		handlers: make(map[protocol.ID]func(context.Context, peer.ID, []byte) error),
 	}, nil
 }
 
@@ -45,18 +68,11 @@ func (n *P2PNetwork) ID() string {
 }
 
 // RegisterProtocol registers a protocol handler
-func (n *P2PNetwork) RegisterProtocol(proto protocol.ID, handler interface{}) {
+func (n *P2PNetwork) RegisterProtocol(proto protocol.ID, handler func(context.Context, peer.ID, []byte) error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	switch h := handler.(type) {
-	case MessageHandler:
-		n.handlers[proto] = h
-	case FullMessageHandler:
-		n.fullHandlers[proto] = h
-	default:
-		panic("invalid handler type")
-	}
+	n.handlers[proto] = handler
 }
 
 // Broadcast broadcasts a message to all peers
@@ -122,12 +138,6 @@ func (n *P2PNetwork) Stop() error {
 	return n.host.Close()
 }
 
-// MessageHandler is a function that handles incoming messages
-type MessageHandler = func([]byte) error
-
-// FullMessageHandler is a function that handles incoming messages with context and peer information
-type FullMessageHandler = func(context.Context, peer.ID, []byte) error
-
 // handleStream handles incoming streams
 func (n *P2PNetwork) handleStream(s network.Stream) {
 	defer s.Close()
@@ -147,19 +157,24 @@ func (n *P2PNetwork) handleStream(s network.Stream) {
 
 	// Handle message based on protocol
 	n.mu.RLock()
-	handler := n.handlers[proto]
-	fullHandler := n.fullHandlers[proto]
+	handler, ok := n.handlers[proto]
 	n.mu.RUnlock()
 
-	if handler != nil {
-		if err := handler(data); err != nil {
+	if ok {
+		if err := handler(context.Background(), from, data); err != nil {
 			fmt.Printf("Error handling message: %v\n", err)
 		}
 	}
+}
 
-	if fullHandler != nil {
-		if err := fullHandler(context.Background(), from, data); err != nil {
-			fmt.Printf("Error handling message: %v\n", err)
-		}
-	}
+// GetPeer gets a peer by ID
+func (n *P2PNetwork) GetPeer(id string) (types.TimeServer, error) {
+	// Not implemented
+	return nil, nil
+}
+
+// GetPeersInRegion gets all peers in a region
+func (n *P2PNetwork) GetPeersInRegion(region string) ([]types.TimeServer, error) {
+	// Not implemented
+	return nil, nil
 }

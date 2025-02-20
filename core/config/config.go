@@ -4,16 +4,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Config represents the server configuration
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Network  NetworkConfig  `yaml:"network"`
-	Region   RegionConfig   `yaml:"region"`
-	Security SecurityConfig `yaml:"security"`
+	Server    ServerConfig    `yaml:"server"`
+	Network   NetworkConfig   `yaml:"network"`
+	Regions   []RegionConfig  `yaml:"regions"`
+	Security  SecurityConfig  `yaml:"security"`
+	Consensus ConsensusConfig `yaml:"consensus"`
 }
 
 // ServerConfig contains server-specific settings
@@ -22,14 +24,15 @@ type ServerConfig struct {
 	ListenAddr     string   `yaml:"listen_addr"`
 	ValidatorIDs   []string `yaml:"validator_ids"`
 	ValidatorCount int      `yaml:"validator_count"`
+	MinValidators  int      `yaml:"min_validators"`
 }
 
 // NetworkConfig contains P2P network settings
 type NetworkConfig struct {
-	BootstrapPeers []string `yaml:"bootstrap_peers"`
-	BootstrapNodes []string `yaml:"bootstrap_nodes"`
-	MaxPeers       int      `yaml:"max_peers"`
-	DialTimeout    int      `yaml:"dial_timeout"`
+	BootstrapPeers []string      `yaml:"bootstrap_peers"`
+	BootstrapNodes []string      `yaml:"bootstrap_nodes"`
+	MaxPeers       int           `yaml:"max_peers"`
+	DialTimeout    time.Duration `yaml:"dial_timeout"`
 }
 
 // RegionConfig contains region-specific settings
@@ -38,6 +41,14 @@ type RegionConfig struct {
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description"`
 	Peers       []string `yaml:"peers"`
+}
+
+// ConsensusConfig contains consensus-related settings
+type ConsensusConfig struct {
+	MaxDrift      time.Duration `yaml:"max_drift"`
+	FutureWindow  time.Duration `yaml:"future_window"`
+	BatchTimeout  time.Duration `yaml:"batch_timeout"`
+	ViewTimeout   time.Duration `yaml:"view_timeout"`
 }
 
 // SecurityConfig contains security-related settings
@@ -56,10 +67,17 @@ func DefaultConfig() *Config {
 		Server: ServerConfig{
 			ListenAddr:     ":8080",
 			ValidatorCount: 4,
+			MinValidators:  3,
 		},
 		Network: NetworkConfig{
 			MaxPeers:    50,
-			DialTimeout: 30,
+			DialTimeout: 30 * time.Second,
+		},
+		Consensus: ConsensusConfig{
+			MaxDrift:     500 * time.Millisecond,
+			FutureWindow: 1 * time.Second,
+			BatchTimeout: 100 * time.Millisecond,
+			ViewTimeout:  5 * time.Second,
 		},
 		Security: SecurityConfig{
 			KeyFile: "server.key",
@@ -120,7 +138,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("max peers must be at least 1")
 	}
 
-	if c.Network.DialTimeout < 1 {
+	if c.Network.DialTimeout < 1*time.Second {
 		return fmt.Errorf("dial timeout must be at least 1 second")
 	}
 

@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package timeserver;
+
+option go_package = "github.com/rhombus-tech/timeserver-core/api/grpc";
+
+// TimestampService provides methods for getting and verifying timestamps
+service TimestampService {
+  // GetTimestamp requests a new signed timestamp
+  rpc GetTimestamp(GetTimestampRequest) returns (GetTimestampResponse) {}
+  
+  // VerifyTimestamp verifies a timestamp's signatures
+  rpc VerifyTimestamp(VerifyTimestampRequest) returns (VerifyTimestampResponse) {}
+  
+  // GetValidators returns the list of active validators
+  rpc GetValidators(GetValidatorsRequest) returns (GetValidatorsResponse) {}
+  
+  // GetStatus returns the node's current status
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse) {}
+}
+
+message GetTimestampRequest {
+  // Optional client-provided nonce for request tracking
+  string nonce = 1;
+}
+
+message GetTimestampResponse {
+  // Unix timestamp in nanoseconds
+  int64 timestamp = 1;
+  // List of validator signatures
+  repeated SignatureInfo signatures = 2;
+  // Region that processed the request
+  string region = 3;
+}
+
+message SignatureInfo {
+  // Validator's public key or ID
+  string validator_id = 1;
+  // Ed25519 signature
+  bytes signature = 2;
+  // Region that signed the timestamp
+  string region = 3;
+}
+
+message VerifyTimestampRequest {
+  // Unix timestamp to verify
+  int64 timestamp = 1;
+  // List of signatures to verify
+  repeated SignatureInfo signatures = 2;
+}
+
+message VerifyTimestampResponse {
+  // Whether the timestamp is valid
+  bool valid = 1;
+  // If invalid, reason for invalidity
+  string error = 2;
+}
+
+message GetValidatorsRequest {}
+
+message GetValidatorsResponse {
+  // List of active validators
+  repeated ValidatorInfo validators = 1;
+}
+
+message ValidatorInfo {
+  string id = 1;
+  string region = 2;
+  string status = 3;
+}
+
+message GetStatusRequest {}
+
+message GetStatusResponse {
+  // Node status (e.g., "healthy", "syncing")
+  string status = 1;
+  // Current region
+  string region = 2;
+  // Number of connected peers
+  int32 peer_count = 3;
+  // Latest consensus round
+  int64 latest_round = 4;
+}

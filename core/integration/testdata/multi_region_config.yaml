@@ -1,0 +1,91 @@
+server:
+  validator_count: 7
+  min_validators: 5
+
+network:
+  max_peers: 200
+  dial_timeout: 5s
+  bootstrap_peers:
+    - "/ip4/127.0.0.1/tcp/9000"
+
+consensus:
+  max_drift: 500ms
+  future_window: 1s
+  batch_timeout: 100ms
+  view_timeout: 5s
+
+regions:
+  - id: "us-east"
+    name: "US East"
+    description: "East Coast Region"
+    peers:
+      - "/ip4/127.0.0.1/tcp/9001"
+      - "/ip4/127.0.0.1/tcp/9002"
+      - "/ip4/127.0.0.1/tcp/9003"
+      - "/ip4/127.0.0.1/tcp/9004"
+      - "/ip4/127.0.0.1/tcp/9005"
+      - "/ip4/127.0.0.1/tcp/9006"
+      - "/ip4/127.0.0.1/tcp/9007"
+
+  - id: "us-west"
+    name: "US West"
+    description: "West Coast Region"
+    peers:
+      - "/ip4/127.0.0.1/tcp/9101"
+      - "/ip4/127.0.0.1/tcp/9102"
+      - "/ip4/127.0.0.1/tcp/9103"
+      - "/ip4/127.0.0.1/tcp/9104"
+      - "/ip4/127.0.0.1/tcp/9105"
+      - "/ip4/127.0.0.1/tcp/9106"
+      - "/ip4/127.0.0.1/tcp/9107"
+
+  - id: "eu-west"
+    name: "Europe West"
+    description: "Europe West Region"
+    peers:
+      - "/ip4/127.0.0.1/tcp/9201"
+      - "/ip4/127.0.0.1/tcp/9202"
+      - "/ip4/127.0.0.1/tcp/9203"
+      - "/ip4/127.0.0.1/tcp/9204"
+      - "/ip4/127.0.0.1/tcp/9205"
+      - "/ip4/127.0.0.1/tcp/9206"
+      - "/ip4/127.0.0.1/tcp/9207"
+
+  - id: "eu-east"
+    name: "Europe East"
+    description: "Europe East Region"
+    peers:
+      - "/ip4/127.0.0.1/tcp/9301"
+      - "/ip4/127.0.0.1/tcp/9302"
+      - "/ip4/127.0.0.1/tcp/9303"
+      - "/ip4/127.0.0.1/tcp/9304"
+      - "/ip4/127.0.0.1/tcp/9305"
+      - "/ip4/127.0.0.1/tcp/9306"
+      - "/ip4/127.0.0.1/tcp/9307"
+
+  - id: "ap-east"
+    name: "Asia Pacific East"
+    description: "Asia Pacific East Region"
+    peers:
+      - "/ip4/127.0.0.1/tcp/9401"
+      - "/ip4/127.0.0.1/tcp/9402"
+      - "/ip4/127.0.0.1/tcp/9403"
+      - "/ip4/127.0.0.1/tcp/9404"
+      - "/ip4/127.0.0.1/tcp/9405"
+      - "/ip4/127.0.0.1/tcp/9406"
+      - "/ip4/127.0.0.1/tcp/9407"
+
+  - id: "ap-south"
+    name: "Asia Pacific South"
+    description: "Asia Pacific South Region"
+    peers:
+      - "/ip4/127.0.0.1/tcp/9501"
+      - "/ip4/127.0.0.1/tcp/9502"
+      - "/ip4/127.0.0.1/tcp/9503"
+      - "/ip4/127.0.0.1/tcp/9504"
+      - "/ip4/127.0.0.1/tcp/9505"
+      - "/ip4/127.0.0.1/tcp/9506"
+      - "/ip4/127.0.0.1/tcp/9507"
+
+security:
+  tls_enabled: false

@@ -3,74 +3,72 @@ package types
 import (
 	"crypto/ed25519"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"time"
 )
 
-// SignedTimestamp represents a timestamp signed by a timeserver
-type SignedTimestamp struct {
-	ServerID   string            `json:"server_id"`
-	Time       time.Time         `json:"time"`
-	Signature  []byte           `json:"signature"`
-	Nonce      []byte           `json:"nonce"`
-	RegionID   string           `json:"region_id"`
-}
+var (
+	ErrInvalidSignature = errors.New("invalid signature")
+	ErrServerNotFound   = errors.New("server not found")
+	ErrRegionNotFound   = errors.New("region not found")
+	ErrServerExists     = errors.New("server already exists")
+)
 
-// VerificationRequest represents a request for a timestamp
-type VerificationRequest struct {
-	Nonce     []byte `json:"nonce"`
-	RegionID  string `json:"region_id"`
-}
-
-// VerificationResponse represents a response containing a signed timestamp
-type VerificationResponse struct {
-	Timestamp   *SignedTimestamp `json:"timestamp"`
-	ServerProof []byte          `json:"server_proof"`
-	Delay       time.Duration   `json:"delay"`
-}
-
-// TimeServer represents a single timeserver node
+// TimeServer represents a server in the time network
 type TimeServer interface {
-	// GetID returns the server's unique identifier
 	GetID() string
-
-	// GetPublicKey returns the server's public key
-	GetPublicKey() ed25519.PublicKey
-
-	// GetRegion returns the server's assigned region
 	GetRegion() string
+	SetRegion(region string) error
+	GetPublicKey() ed25519.PublicKey
+	Sign(message []byte) ([]byte, error)
+	Verify(message []byte, signature []byte) error
+}
 
-	// SetRegion sets the server's region
-	SetRegion(regionID string) error
-
-	// Sign signs a timestamp with the server's private key
-	Sign(ts time.Time, nonce []byte) (*SignedTimestamp, error)
-
-	// Verify verifies a signed timestamp
-	Verify(ts *SignedTimestamp) error
-
-	// Start starts the server
+// TimeNetwork represents the network of time servers
+type TimeNetwork interface {
+	AddServer(server TimeServer) error
+	RemoveServer(serverID string) error
+	GetServers() []TimeServer
+	GetServersByRegion(region string) []TimeServer
+	GetStatus() (*NetworkStatus, error)
 	Start() error
-
-	// Stop stops the server
 	Stop() error
 }
 
-// TimeNetwork represents a network of timeservers
-type TimeNetwork interface {
-	// AddServer adds a new timeserver to the network
-	AddServer(server TimeServer) error
+// SignedTimestamp represents a timestamp that has been signed by a time server
+type SignedTimestamp struct {
+	Time      time.Time
+	ServerID  string
+	RegionID  string
+	Signature []byte
+}
 
-	// GetVerifiedTimestamp gets a timestamp verified by multiple servers
-	GetVerifiedTimestamp(regionID string) (*SignedTimestamp, error)
+// Verify checks if the signature is valid for this timestamp
+func (st *SignedTimestamp) Verify(server TimeServer) error {
+	data := make([]byte, 8)
+	binary.BigEndian.PutUint64(data, uint64(st.Time.UnixNano()))
+	return server.Verify(data, st.Signature)
+}
 
-	// GetRegionServers gets all servers in a region
-	GetRegionServers(regionID string) ([]TimeServer, error)
+// String returns a string representation of the signed timestamp
+func (st *SignedTimestamp) String() string {
+	return fmt.Sprintf("SignedTimestamp{Time: %v, ServerID: %s, RegionID: %s}", st.Time, st.ServerID, st.RegionID)
+}
 
-	// Start starts the network
-	Start() error
+// NetworkStatus represents the current status of the time network
+type NetworkStatus struct {
+	Status      string
+	Region      string
+	PeerCount   int
+	LatestRound uint64
+}
 
-	// Stop stops the network
-	Stop() error
+// ValidatorInfo represents information about a validator in the network
+type ValidatorInfo struct {
+	ID     string
+	Region string
+	Status string
 }
 
 // TimestampToBytes converts a timestamp to bytes for signing
@@ -85,4 +83,17 @@ func TimestampToBytes(t time.Time) []byte {
 func BytesToTimestamp(b []byte) time.Time {
 	nanos := binary.BigEndian.Uint64(b)
 	return time.Unix(0, int64(nanos))
+}
+
+// Sign signs a timestamp using the provided server
+func (s *SignedTimestamp) Sign(server TimeServer) error {
+	message := TimestampToBytes(s.Time)
+	sig, err := server.Sign(message)
+	if err != nil {
+		return fmt.Errorf("failed to sign timestamp: %w", err)
+	}
+	s.Signature = sig
+	s.ServerID = server.GetID()
+	s.RegionID = server.GetRegion()
+	return nil
 }
