@@ -7,6 +7,7 @@ import (
     "sync"
     "time"
     "github.com/rhombus-tech/timeserver-core/core/types"
+    "github.com/rhombus-tech/timeserver-core/core/metrics"
 )
 
 // FastPathConfig defines configuration for fast path consensus
@@ -41,6 +42,12 @@ func (fp *FastPathImpl) requestSignature(ctx context.Context, serverID string, t
 
 // GetTimestamp implements FastPathHandler interface
 func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestamp, error) {
+    start := time.Now()
+    defer func() {
+        duration := time.Since(start).Seconds()
+        metrics.RecordTimestampLatency(duration, "get_timestamp")
+    }()
+
     fp.mu.Lock()
     defer fp.mu.Unlock()
 
@@ -95,6 +102,7 @@ func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestam
                 drift := resp.ts.Sub(t)
                 if drift > fp.config.MaxDrift || drift < -fp.config.MaxDrift {
                     remainingServers--
+                    metrics.RecordTimestampError("drift_exceeded")
                     return nil, fmt.Errorf("timestamp drift between servers %s and %s exceeds MaxDrift (%v > %v)", resp.serverID, sid, drift, fp.config.MaxDrift)
                 }
             }
@@ -111,6 +119,7 @@ func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestam
             remainingServers--
             
             if validSignatures >= fp.config.MinSignatures {
+                consensusStart := time.Now()
                 // Use median timestamp
                 var allTimestamps []time.Time
                 for _, t := range timestamps {
@@ -124,9 +133,11 @@ func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestam
                 // Aggregate signatures
                 aggregatedSig, err := fp.thresholdSigs.Aggregate(signatures)
                 if err != nil {
+                    metrics.RecordTimestampError("signature_aggregation")
                     return nil, fmt.Errorf("fast path: failed to aggregate signatures: %v", err)
                 }
                 ts.Signature = aggregatedSig
+                metrics.RecordConsensusLatency(time.Since(consensusStart).Seconds(), "success")
                 return ts, nil
             }
             

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/crypto"
@@ -12,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/rhombus-tech/timeserver-core/core/metrics"
 	"github.com/rhombus-tech/timeserver-core/core/types"
 	"github.com/sirupsen/logrus"
 )
@@ -78,19 +80,32 @@ func (n *P2PNetwork) RegisterProtocol(proto protocol.ID, handler func(context.Co
 
 // Broadcast broadcasts a message to all peers
 func (n *P2PNetwork) Broadcast(ctx context.Context, proto protocol.ID, data []byte) error {
+	start := time.Now()
+	defer func() {
+		metrics.RecordP2PStreamLatency(time.Since(start).Seconds(), "broadcast")
+	}()
+
 	peers := n.host.Network().Peers()
 	for _, p := range peers {
 		if err := n.Send(ctx, p, proto, data); err != nil {
+			metrics.RecordP2PMessage(string(proto), "broadcast_error")
 			return fmt.Errorf("failed to send to peer %s: %w", p, err)
 		}
 	}
+	metrics.RecordP2PMessage(string(proto), "broadcast_success")
 	return nil
 }
 
 // Send sends a message to a specific peer
 func (n *P2PNetwork) Send(ctx context.Context, p peer.ID, proto protocol.ID, data []byte) error {
+	start := time.Now()
+	defer func() {
+		metrics.RecordP2PStreamLatency(time.Since(start).Seconds(), "send")
+	}()
+
 	s, err := n.host.NewStream(ctx, p, proto)
 	if err != nil {
+		metrics.RecordP2PMessage(string(proto), "send_error")
 		return fmt.Errorf("failed to create stream: %w", err)
 	}
 	defer func() {
@@ -101,9 +116,11 @@ func (n *P2PNetwork) Send(ctx context.Context, p peer.ID, proto protocol.ID, dat
 
 	_, err = s.Write(data)
 	if err != nil {
+		metrics.RecordP2PMessage(string(proto), "write_error")
 		return fmt.Errorf("failed to write to stream: %w", err)
 	}
 
+	metrics.RecordP2PMessage(string(proto), "send_success")
 	return nil
 }
 
@@ -145,7 +162,9 @@ func (n *P2PNetwork) Stop() error {
 
 // handleStream handles incoming streams
 func (n *P2PNetwork) handleStream(s network.Stream) {
+	start := time.Now()
 	defer func() {
+		metrics.RecordP2PStreamLatency(time.Since(start).Seconds(), "handle_stream")
 		if err := s.Close(); err != nil {
 			logrus.WithError(err).Error("Error closing stream")
 		}
@@ -154,26 +173,33 @@ func (n *P2PNetwork) handleStream(s network.Stream) {
 	proto := s.Protocol()
 	from := s.Conn().RemotePeer()
 
-	// Read message data
-	buf := make([]byte, 1024)
-	bytesRead, err := s.Read(buf)
-	if err != nil {
-		logrus.WithError(err).Error("Error reading from stream")
-		return
-	}
-
-	data := buf[:bytesRead]
-
-	// Handle message based on protocol
 	n.mu.RLock()
 	handler, ok := n.handlers[proto]
 	n.mu.RUnlock()
 
-	if ok {
-		if err := handler(context.Background(), from, data); err != nil {
-			logrus.WithError(err).WithField("peer", from.String()).Error("Error handling message")
-		}
+	if !ok {
+		metrics.RecordP2PMessage(string(proto), "unknown_protocol")
+		logrus.WithField("protocol", proto).Warn("No handler for protocol")
+		return
 	}
+
+	// Read the message
+	buf := make([]byte, 1024*1024) // 1MB buffer
+	bytesRead, err := s.Read(buf)
+	if err != nil {
+		metrics.RecordP2PMessage(string(proto), "read_error")
+		logrus.WithError(err).Error("Error reading from stream")
+		return
+	}
+
+	// Handle the message
+	if err := handler(context.Background(), from, buf[:bytesRead]); err != nil {
+		metrics.RecordP2PMessage(string(proto), "handle_error")
+		logrus.WithError(err).Error("Error handling message")
+		return
+	}
+
+	metrics.RecordP2PMessage(string(proto), "handle_success")
 }
 
 // GetPeer gets a peer by ID

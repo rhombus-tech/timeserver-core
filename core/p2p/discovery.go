@@ -12,7 +12,7 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/multiformats/go-multiaddr"
-	"github.com/sirupsen/logrus" // Using logrus for structured logging
+	"github.com/rhombus-tech/timeserver-core/core/metrics"
 )
 
 // PeerInfo stores information about a connected peer
@@ -97,19 +97,33 @@ func (d *Discovery) Stop() error {
 
 // HandlePeerFound implements mdns.Notifee
 func (d *Discovery) HandlePeerFound(pi peer.AddrInfo) {
+	// Record discovery event
+	metrics.RecordP2PDiscoveryEvent("peer_found")
 	d.AddPeer(pi.ID, pi.Addrs)
 }
 
 // AddPeer adds a peer to the discovery service
 func (d *Discovery) AddPeer(p peer.ID, addrs []multiaddr.Multiaddr) {
-	// Validate peer before adding
-	if !d.security.ValidateNewPeer(p) {
-		return
-	}
+	start := time.Now()
+	defer func() {
+		metrics.RecordP2PStreamLatency(time.Since(start).Seconds(), "add_peer")
+	}()
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	// Check if peer exists
+	if _, exists := d.peerInfo[p]; exists {
+		return
+	}
+
+	// Validate peer
+	if !d.security.ValidateNewPeer(p) {
+		metrics.RecordP2PDiscoveryEvent("peer_rejected")
+		return
+	}
+
+	// Add peer info
 	d.peerInfo[p] = &PeerInfo{
 		ID:        p,
 		Addresses: addrs,
@@ -117,20 +131,11 @@ func (d *Discovery) AddPeer(p peer.ID, addrs []multiaddr.Multiaddr) {
 	}
 
 	// Add to peerstore
-	for _, addr := range addrs {
-		d.host.Peerstore().AddAddr(p, addr, peerstore.PermanentAddrTTL)
-	}
+	d.host.Peerstore().AddAddrs(p, addrs, peerstore.PermanentAddrTTL)
 
-	// Check for potential Sybil attack
-	peers := make([]peer.ID, 0, len(d.peerInfo))
-	for id := range d.peerInfo {
-		peers = append(peers, id)
-	}
-	if d.security.DetectSybilAttack(peers) {
-		// Log the suspicious activity but don't disconnect immediately
-		// This allows for monitoring while maintaining network functionality
-		logrus.Warn("Potential Sybil attack detected")
-	}
+	// Update metrics
+	metrics.RecordP2PDiscoveryEvent("peer_added")
+	metrics.UpdatePeerCount(len(d.peerInfo), "all")
 }
 
 // RemovePeer removes a peer from the discovery service
@@ -139,6 +144,8 @@ func (d *Discovery) RemovePeer(p peer.ID) {
 	defer d.mu.Unlock()
 
 	delete(d.peerInfo, p)
+	metrics.RecordP2PDiscoveryEvent("peer_removed")
+	metrics.UpdatePeerCount(len(d.peerInfo), "all")
 }
 
 // GetPeers returns all known peers
@@ -165,23 +172,23 @@ func (d *Discovery) discoverPeers() {
 		case <-d.ctx.Done():
 			return
 		case <-ticker.C:
+			start := time.Now()
+			
+			// Get peers from DHT routing table
 			peers := d.dht.RoutingTable().ListPeers()
 			for _, p := range peers {
 				// Get peer addresses
 				addrs := d.host.Peerstore().Addrs(p)
 				if len(addrs) > 0 {
-					// Only add peer if it passes security checks
-					if d.security.ValidateNewPeer(p) {
-						d.AddPeer(p, addrs)
-					}
+					d.AddPeer(p, addrs)
 				}
 			}
-
-			// Update peer scores and remove low-scoring peers
+			
+			metrics.RecordP2PStreamLatency(time.Since(start).Seconds(), "find_peers")
+			
+			// Update peer scores and remove stale peers
 			d.updatePeerScores()
 			d.removeStalePeers()
-		case <-d.done:
-			return
 		}
 	}
 }

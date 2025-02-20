@@ -3,8 +3,10 @@ package rest
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/rhombus-tech/timeserver-core/core/metrics"
 )
 
 // Server represents the REST API server
@@ -53,12 +55,32 @@ func NewServer(ts TimestampService) *Server {
 	return s
 }
 
+// metricsMiddleware wraps an http.Handler and records metrics about the request
+func metricsMiddleware(path string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		
+		// Call the next handler
+		next.ServeHTTP(w, r)
+		
+		// Record metrics after the handler returns
+		duration := time.Since(start)
+		metrics.RecordAPILatency(duration.Seconds(), path)
+		metrics.RecordAPIRequest(path)
+	})
+}
+
 // routes sets up the HTTP routes
 func (s *Server) routes() {
-	s.router.HandleFunc("/v1/timestamp", s.handleGetTimestamp()).Methods("POST")
-	s.router.HandleFunc("/v1/timestamp/verify", s.handleVerifyTimestamp()).Methods("POST")
-	s.router.HandleFunc("/v1/validators", s.handleGetValidators()).Methods("GET")
-	s.router.HandleFunc("/v1/status", s.handleGetStatus()).Methods("GET")
+	// Add metrics middleware to each route
+	s.router.Handle("/v1/timestamp", metricsMiddleware("/v1/timestamp",
+		http.HandlerFunc(s.handleGetTimestamp()))).Methods("POST")
+	s.router.Handle("/v1/timestamp/verify", metricsMiddleware("/v1/timestamp/verify",
+		http.HandlerFunc(s.handleVerifyTimestamp()))).Methods("POST")
+	s.router.Handle("/v1/validators", metricsMiddleware("/v1/validators",
+		http.HandlerFunc(s.handleGetValidators()))).Methods("GET")
+	s.router.Handle("/v1/status", metricsMiddleware("/v1/status",
+		http.HandlerFunc(s.handleGetStatus()))).Methods("GET")
 }
 
 func (s *Server) handleGetTimestamp() http.HandlerFunc {
