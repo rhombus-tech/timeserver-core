@@ -90,12 +90,6 @@ func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestam
     for {
         select {
         case resp := <-sigChan:
-            // Validate timestamp is not from future
-            if resp.ts.After(now.Add(fp.config.MaxDrift)) {
-                errChan <- fmt.Errorf("server %s timestamp is in the future: %v", resp.serverID, resp.ts)
-                continue
-            }
-            
             // Check drift against other timestamps
             for sid, t := range timestamps {
                 drift := resp.ts.Sub(t)
@@ -103,6 +97,12 @@ func (fp *FastPathImpl) GetTimestamp(ctx context.Context) (*types.SignedTimestam
                     remainingServers--
                     return nil, fmt.Errorf("timestamp drift between servers %s and %s exceeds MaxDrift (%v > %v)", resp.serverID, sid, drift, fp.config.MaxDrift)
                 }
+            }
+            
+            // Validate timestamp is not too far in the future
+            if resp.ts.After(now.Add(fp.config.MaxDrift)) {
+                errChan <- fmt.Errorf("timestamp drift between servers exceeds MaxDrift: server %s timestamp is too far in the future", resp.serverID)
+                continue
             }
             
             signatures[resp.serverID] = resp.sig
