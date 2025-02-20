@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 	"github.com/rhombus-tech/timeserver-core/core/types"
+	"github.com/sirupsen/logrus"
 )
 
 // Network represents a P2P network
@@ -92,7 +93,11 @@ func (n *P2PNetwork) Send(ctx context.Context, p peer.ID, proto protocol.ID, dat
 	if err != nil {
 		return fmt.Errorf("failed to create stream: %w", err)
 	}
-	defer s.Close()
+	defer func() {
+		if err := s.Close(); err != nil {
+			logrus.WithError(err).Error("Error closing stream")
+		}
+	}()
 
 	_, err = s.Write(data)
 	if err != nil {
@@ -140,7 +145,11 @@ func (n *P2PNetwork) Stop() error {
 
 // handleStream handles incoming streams
 func (n *P2PNetwork) handleStream(s network.Stream) {
-	defer s.Close()
+	defer func() {
+		if err := s.Close(); err != nil {
+			logrus.WithError(err).Error("Error closing stream")
+		}
+	}()
 
 	proto := s.Protocol()
 	from := s.Conn().RemotePeer()
@@ -149,7 +158,7 @@ func (n *P2PNetwork) handleStream(s network.Stream) {
 	buf := make([]byte, 1024)
 	bytesRead, err := s.Read(buf)
 	if err != nil {
-		fmt.Printf("Error reading from stream: %v\n", err)
+		logrus.WithError(err).Error("Error reading from stream")
 		return
 	}
 
@@ -162,7 +171,7 @@ func (n *P2PNetwork) handleStream(s network.Stream) {
 
 	if ok {
 		if err := handler(context.Background(), from, data); err != nil {
-			fmt.Printf("Error handling message: %v\n", err)
+			logrus.WithError(err).WithField("peer", from.String()).Error("Error handling message")
 		}
 	}
 }

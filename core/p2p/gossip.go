@@ -8,6 +8,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -120,9 +121,12 @@ func (g *Gossip) handleMessage(ctx context.Context, from peer.ID, data []byte) e
 	peers := g.network.host.Network().Peers()
 	for _, p := range peers {
 		if p != from && p != g.network.host.ID() {
+			// Forward message to peer
 			if err := g.network.Send(ctx, p, gossipProtocol, msgData); err != nil {
-				// Log error but continue forwarding to other peers
-				fmt.Printf("failed to forward message to peer %s: %v\n", p, err)
+				logrus.WithError(err).WithFields(logrus.Fields{
+					"peer":    p.String(),
+					"protocol": gossipProtocol,
+				}).Error("Failed to forward message to peer")
 			}
 		}
 	}

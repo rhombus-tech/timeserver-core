@@ -12,6 +12,7 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/sirupsen/logrus" // Using logrus for structured logging
 )
 
 // PeerInfo stores information about a connected peer
@@ -28,6 +29,7 @@ type Discovery struct {
 	mdns     mdns.Service
 	network  *P2PNetwork
 	peerInfo map[peer.ID]*PeerInfo
+	security *PeerSecurity
 	mu       sync.RWMutex
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -38,10 +40,19 @@ type Discovery struct {
 // NewDiscovery creates a new discovery service
 func NewDiscovery(network *P2PNetwork) *Discovery {
 	ctx, cancel := context.WithCancel(context.Background())
+	
+	// Initialize security with default configuration
+	secConfig := SecurityConfig{
+		MaxPeersPerMinute:  30,
+		MinPeerScore:       0.5,
+		MaxPeersPerRegion:  10,
+	}
+	
 	return &Discovery{
 		host:     network.host,
 		network:  network,
 		peerInfo: make(map[peer.ID]*PeerInfo),
+		security: NewPeerSecurity(secConfig),
 		ctx:      ctx,
 		cancel:   cancel,
 		done:     make(chan struct{}),
@@ -91,6 +102,11 @@ func (d *Discovery) HandlePeerFound(pi peer.AddrInfo) {
 
 // AddPeer adds a peer to the discovery service
 func (d *Discovery) AddPeer(p peer.ID, addrs []multiaddr.Multiaddr) {
+	// Validate peer before adding
+	if !d.security.ValidateNewPeer(p) {
+		return
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -103,6 +119,17 @@ func (d *Discovery) AddPeer(p peer.ID, addrs []multiaddr.Multiaddr) {
 	// Add to peerstore
 	for _, addr := range addrs {
 		d.host.Peerstore().AddAddr(p, addr, peerstore.PermanentAddrTTL)
+	}
+
+	// Check for potential Sybil attack
+	peers := make([]peer.ID, 0, len(d.peerInfo))
+	for id := range d.peerInfo {
+		peers = append(peers, id)
+	}
+	if d.security.DetectSybilAttack(peers) {
+		// Log the suspicious activity but don't disconnect immediately
+		// This allows for monitoring while maintaining network functionality
+		logrus.Warn("Potential Sybil attack detected")
 	}
 }
 
@@ -143,14 +170,39 @@ func (d *Discovery) discoverPeers() {
 				// Get peer addresses
 				addrs := d.host.Peerstore().Addrs(p)
 				if len(addrs) > 0 {
-					d.AddPeer(p, addrs)
+					// Only add peer if it passes security checks
+					if d.security.ValidateNewPeer(p) {
+						d.AddPeer(p, addrs)
+					}
 				}
 			}
 
-			// Remove stale peers
+			// Update peer scores and remove low-scoring peers
+			d.updatePeerScores()
 			d.removeStalePeers()
 		case <-d.done:
 			return
+		}
+	}
+}
+
+// updatePeerScores updates the scores of all peers
+func (d *Discovery) updatePeerScores() {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	for id, info := range d.peerInfo {
+		// Calculate time drift and response time
+		// This is a simplified example - in practice, you would use actual measurements
+		timeDrift := time.Duration(0)
+		responseTime := time.Since(info.LastSeen)
+		
+		d.security.UpdatePeerScore(id, timeDrift, responseTime)
+		
+		// Disconnect peers with low scores
+		if d.security.ShouldDisconnectPeer(id) {
+			d.RemovePeer(id)
+			d.host.Network().ClosePeer(id)
 		}
 	}
 }
